@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cinis"
+version = "0.1.0"
+description = "Cinis Simulation Platform - reference implementation for the CityScape Simulation Platform"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# Approved runtime dependency whitelist (Master Prompt, Section 2 / Section 7)
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pyodbc>=5.0",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+# Dev-only tooling - never ships, never touches simulation logic or persistence.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Secrets & local config (never commit) ---
+.env
+.env.*
+!.env.example
+*.local.json
+**/secrets/
+
+# --- Database local artifacts ---
+*.bak
+*.mdf
+*.ldf
+*.sqlite3
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Data (private world-building data stays out of the public repo) ---
+data/sample/*
+!data/sample/.gitkeep
+data/reference/*
+!data/reference/.gitkeep
+
+# --- Notebooks checkpoints ---
+.ipynb_checkpoints/
