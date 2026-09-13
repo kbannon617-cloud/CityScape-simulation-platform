@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cinis.repositories.population_repository import PopulationRepository
+from cinis.rules.labor_rules import calculate_available_labor
 from cinis.rules.population_rules import calculate_aged_count
 
 
@@ -54,3 +55,16 @@ class PopulationService:
             new_child_count=child_group.Count,
             new_adult_count=adult_group.Count,
         )
+
+    def calculate_available_labor(self, city_id: int, scenario_id: int) -> int:
+        """Return how many adults are available as labor capacity.
+
+        This models AVAILABLE capacity only - it does not allocate that
+        capacity to any industry (Economy/Production domain, Milestone
+        3+), per ADR-0005's scope boundary.
+        """
+        adult_group = self._repository.get_group(city_id, "ADULT")
+        participation_rate = self._repository.get_scenario_parameter(
+            scenario_id, "AdultLaborParticipationRatePercent"
+        )
+        return calculate_available_labor(adult_group.Count, participation_rate)
