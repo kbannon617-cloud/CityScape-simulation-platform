@@ -14,9 +14,44 @@ class ScenarioParameterNotFoundError(RuntimeError):
     """Raised when a requested scenario parameter has not been seeded."""
 
 
+class PopulationGroupNotFoundError(RuntimeError):
+    """Raised when a requested (city, group type) population group does
+    not exist. This should never happen once Milestone 1/2 seed data has
+    been applied, but is checked explicitly rather than propagating a
+    silent None."""
+
+
 class PopulationRepository:
     def __init__(self, session: Session):
         self._session = session
+
+    def get_group(self, city_id: int, group_type_code: str) -> PopulationGroup:
+        """Return the live PopulationGroup ORM object for a city/group type.
+
+        Unlike get_population_by_city (which returns plain counts for
+        reporting), this returns the mapped object itself so callers -
+        specifically PopulationService - can mutate .Count and rely on
+        the same Session to persist the change.
+        """
+        group = (
+            self._session.query(PopulationGroup)
+            .join(
+                PopulationGroupType,
+                PopulationGroupType.PopulationGroupTypeID
+                == PopulationGroup.PopulationGroupTypeID,
+            )
+            .filter(
+                PopulationGroup.CityID == city_id,
+                PopulationGroupType.Code == group_type_code,
+            )
+            .one_or_none()
+        )
+        if group is None:
+            raise PopulationGroupNotFoundError(
+                f"No PopulationGroup found for CityID={city_id}, "
+                f"group type {group_type_code!r}"
+            )
+        return group
 
     def get_population_by_city(self, city_id: int) -> dict[str, int]:
         """Return {group_type_code: count} for every population group in a city."""
