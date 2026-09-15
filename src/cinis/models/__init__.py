@@ -7,8 +7,10 @@ shared declarative Base before any relationship() with a string reference
 from cinis.models.base import Base
 from cinis.models.economy import Treasury, TreasuryCategoryType, TreasuryLedgerEntry
 from cinis.models.geography import City, Region, World
+from cinis.models.inventory import Resource
 from cinis.models.needs import NeedConsumptionRate, NeedType
 from cinis.models.population import PopulationGroup, PopulationGroupType, ScenarioParameter
+from cinis.models.production import Building, BuildingType, ProductionFlow
 from cinis.models.reference import Currency, UnitOfMeasure
 from cinis.models.simulation import Scenario, Simulation, SimulationRun
 
@@ -30,4 +32,8 @@ __all__ = [
     "Treasury",
     "TreasuryCategoryType",
     "TreasuryLedgerEntry",
+    "Resource",
+    "BuildingType",
+    "Building",
+    "ProductionFlow",
 ]
