@@ -40,6 +40,19 @@ class ProductionRepository:
         )
         return {code: count for code, count in rows}
 
+    def get_city_buildings_with_type(self, city_id: int) -> list[tuple[Building, BuildingType]]:
+        """Return (Building, BuildingType) pairs for a city, ordered by
+        BuildingType.Code - the deterministic processing order
+        ProductionService relies on for its first-come-first-served
+        labor allocation."""
+        return (
+            self._session.query(Building, BuildingType)
+            .join(BuildingType, BuildingType.BuildingTypeID == Building.BuildingTypeID)
+            .filter(Building.CityID == city_id, Building.Count > 0)
+            .order_by(BuildingType.Code)
+            .all()
+        )
+
     def get_flows_for_building_type(self, building_type_code: str) -> list[ProductionFlow]:
         """Return every ProductionFlow (input and output) for a building type."""
         return (
