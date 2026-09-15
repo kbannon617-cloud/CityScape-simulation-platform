@@ -1,15 +1,27 @@
 """
-Inventory domain reference data mapping to the 0011 migration.
-Resource is the catalog of what can exist in a city's inventory; the
-actual city-level stockpile tracking (CityInventory) is a separate,
-not-yet-built piece.
+Inventory domain models mapping to the 0011 and 0013 migrations.
+CityInventory is current state (one row per City/Resource pair, with a
+hard non-negative CHECK per Document 7); InventoryLedgerEntry is the
+append-only history it's derived from, mirroring the Treasury pattern.
 """
 
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from cinis.models.base import Base
@@ -42,3 +54,51 @@ class Resource(Base):
 
     def __repr__(self) -> str:
         return f"Resource(Code={self.Code!r}, Name={self.Name!r})"
+
+
+class CityInventory(Base):
+    __tablename__ = "CityInventory"
+    __table_args__ = (
+        CheckConstraint("Quantity >= 0", name="CK_CityInventory_Quantity_NonNegative"),
+    )
+
+    CityInventoryID: Mapped[int] = mapped_column(Integer, primary_key=True)
+    CityID: Mapped[int] = mapped_column(ForeignKey("City.CityID"), nullable=False)
+    ResourceID: Mapped[int] = mapped_column(ForeignKey("Resource.ResourceID"), nullable=False)
+    Quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    CreatedDateTime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.sysutcdatetime()
+    )
+
+    city: Mapped["City"] = relationship()  # noqa: F821
+    resource: Mapped["Resource"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"CityInventory(CityID={self.CityID!r}, ResourceID={self.ResourceID!r}, "
+            f"Quantity={self.Quantity!r})"
+        )
+
+
+class InventoryLedgerEntry(Base):
+    __tablename__ = "InventoryLedgerEntry"
+
+    InventoryLedgerEntryID: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    CityInventoryID: Mapped[int] = mapped_column(
+        ForeignKey("CityInventory.CityInventoryID"), nullable=False
+    )
+    EntryDate: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    Amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    Notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    CreatedDateTime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.sysutcdatetime()
+    )
+
+    city_inventory: Mapped["CityInventory"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"InventoryLedgerEntry(CityInventoryID={self.CityInventoryID!r}, "
+            f"Amount={self.Amount!r}, EntryDate={self.EntryDate!r})"
+        )
+
