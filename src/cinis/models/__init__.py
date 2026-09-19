@@ -8,11 +8,13 @@ from cinis.models.base import Base
 from cinis.models.economy import Treasury, TreasuryCategoryType, TreasuryLedgerEntry
 from cinis.models.geography import City, Region, World
 from cinis.models.inventory import CityInventory, InventoryLedgerEntry, Resource
+from cinis.models.market import Market, MarketResourcePrice, MarketTransaction
 from cinis.models.needs import NeedConsumptionRate, NeedType
 from cinis.models.population import PopulationGroup, PopulationGroupType, ScenarioParameter
 from cinis.models.production import Building, BuildingType, ProductionFlow
 from cinis.models.reference import Currency, UnitOfMeasure
 from cinis.models.simulation import Scenario, Simulation, SimulationRun
+from cinis.models.vehicle import BuildingVehicleRequirement, CityVehicle, TransportMode, VehicleType
 
 __all__ = [
     "Base",
@@ -38,4 +40,11 @@ __all__ = [
     "BuildingType",
     "Building",
     "ProductionFlow",
+    "VehicleType",
+    "TransportMode",
+    "BuildingVehicleRequirement",
+    "CityVehicle",
+    "Market",
+    "MarketResourcePrice",
+    "MarketTransaction",
 ]
