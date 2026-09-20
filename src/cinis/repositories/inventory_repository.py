@@ -56,6 +56,8 @@ class InventoryRepository:
         entry_date: datetime.date,
         amount: Decimal,
         notes: str | None = None,
+        simulation_run_id: int | None = None,
+        simulation_tick_id: int | None = None,
     ) -> None:
         self._session.add(
             InventoryLedgerEntry(
@@ -63,6 +65,8 @@ class InventoryRepository:
                 EntryDate=entry_date,
                 Amount=amount,
                 Notes=notes,
+                SimulationRunID=simulation_run_id,
+                SimulationTickID=simulation_tick_id,
             )
         )
 

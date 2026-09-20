@@ -82,6 +82,17 @@ class CityInventory(Base):
 
 class InventoryLedgerEntry(Base):
     __tablename__ = "InventoryLedgerEntry"
+    __table_args__ = (
+        CheckConstraint(
+            "(SimulationRunID IS NULL AND SimulationTickID IS NULL) OR "
+            "(SimulationRunID IS NOT NULL AND SimulationTickID IS NOT NULL)",
+            name="CK_InventoryLedgerEntry_Trace_BothOrNeither",
+        ),
+        CheckConstraint(
+            "SimulationTickID IS NULL OR SimulationTickID >= 1",
+            name="CK_InventoryLedgerEntry_SimulationTickID_Positive",
+        ),
+    )
 
     InventoryLedgerEntryID: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     CityInventoryID: Mapped[int] = mapped_column(
@@ -90,6 +101,12 @@ class InventoryLedgerEntry(Base):
     EntryDate: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     Amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     Notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # ADR-0009 Decision 3: both set (engine-written) or both NULL. The tick
+    # is a per-run counter, so it is only meaningful with its run.
+    SimulationRunID: Mapped[int | None] = mapped_column(
+        ForeignKey("SimulationRun.SimulationRunID"), nullable=True
+    )
+    SimulationTickID: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     CreatedDateTime: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.sysutcdatetime()
     )

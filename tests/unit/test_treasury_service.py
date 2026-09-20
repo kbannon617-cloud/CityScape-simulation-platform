@@ -33,13 +33,23 @@ class _FakeRepository:
     def get_category_type_id(self, code: str) -> int:
         return self.category_ids[code]
 
-    def add_ledger_entry(self, treasury_id, category_type_id, entry_date, amount):
+    def add_ledger_entry(
+        self,
+        treasury_id,
+        category_type_id,
+        entry_date,
+        amount,
+        simulation_run_id=None,
+        simulation_tick_id=None,
+    ):
         self.added_entries.append(
             {
                 "treasury_id": treasury_id,
                 "category_type_id": category_type_id,
                 "entry_date": entry_date,
                 "amount": amount,
+                "simulation_run_id": simulation_run_id,
+                "simulation_tick_id": simulation_tick_id,
             }
         )
 
@@ -118,3 +128,36 @@ def test_unknown_category_code_raises():
         service.record_ledger_entry(
             1, "NOT_A_REAL_CATEGORY", Decimal("100.00"), date(2026, 2, 1)
         )
+
+
+def test_trace_ids_default_to_none_and_are_passed_to_the_repository():
+    repo = _FakeRepository(starting_balance=Decimal("10000.00"))
+    service = TreasuryService(repo)
+
+    service.record_ledger_entry(1, "RESIDENT_INCOME", Decimal("10.00"), date(2026, 3, 1))
+    service.record_ledger_entry(
+        1,
+        "RESIDENT_INCOME",
+        Decimal("10.00"),
+        date(2026, 3, 2),
+        simulation_run_id=7,
+        simulation_tick_id=3,
+    )
+
+    assert [(e["simulation_run_id"], e["simulation_tick_id"]) for e in repo.added_entries] == [
+        (None, None),
+        (7, 3),
+    ]
+
+
+def test_partial_trace_raises_before_anything_is_staged():
+    repo = _FakeRepository(starting_balance=Decimal("10000.00"))
+    service = TreasuryService(repo)
+
+    with pytest.raises(ValueError, match="together"):
+        service.record_ledger_entry(
+            1, "RESIDENT_INCOME", Decimal("10.00"), date(2026, 3, 1), simulation_tick_id=3
+        )
+
+    assert repo.added_entries == []
+    assert repo.treasury.Balance == Decimal("10000.00")

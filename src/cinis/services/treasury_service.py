@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from cinis.repositories.treasury_repository import TreasuryRepository
+from cinis.rules.ledger_rules import validate_ledger_trace
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,8 @@ class TreasuryService:
         category_code: str,
         amount: Decimal,
         entry_date: datetime.date,
+        simulation_run_id: int | None = None,
+        simulation_tick_id: int | None = None,
     ) -> LedgerEntryResult:
         """Record a signed ledger entry and update the running balance.
 
@@ -46,7 +49,12 @@ class TreasuryService:
         negative decreases it (expense). Does not commit; the caller
         owns the transaction boundary, consistent with the pattern
         already used in PopulationService.
+
+        simulation_run_id and simulation_tick_id (ADR-0009 Decision 3) are
+        supplied together by the tick engine, or both omitted; a ValueError
+        is raised before anything is staged if only one is given.
         """
+        validate_ledger_trace(simulation_run_id, simulation_tick_id)
         treasury = self._repository.get_treasury(city_id)
         category_type_id = self._repository.get_category_type_id(category_code)
 
@@ -55,6 +63,8 @@ class TreasuryService:
             category_type_id=category_type_id,
             entry_date=entry_date,
             amount=amount,
+            simulation_run_id=simulation_run_id,
+            simulation_tick_id=simulation_tick_id,
         )
 
         treasury.Balance = treasury.Balance + amount

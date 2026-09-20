@@ -53,6 +53,8 @@ class TreasuryRepository:
         category_type_id: int,
         entry_date: datetime.date,
         amount: Decimal,
+        simulation_run_id: int | None = None,
+        simulation_tick_id: int | None = None,
     ) -> TreasuryLedgerEntry:
         """Create and stage a new ledger entry. Does not commit - the
         caller (TreasuryService, via its own caller) owns the transaction
@@ -62,6 +64,8 @@ class TreasuryRepository:
             TreasuryCategoryTypeID=category_type_id,
             EntryDate=entry_date,
             Amount=amount,
+            SimulationRunID=simulation_run_id,
+            SimulationTickID=simulation_tick_id,
         )
         self._session.add(entry)
         return entry

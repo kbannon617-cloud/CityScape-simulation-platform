@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from cinis.repositories.inventory_repository import InventoryRepository
+from cinis.rules.ledger_rules import validate_ledger_trace
 
 
 class InsufficientInventoryError(RuntimeError):
@@ -51,6 +52,8 @@ class InventoryService:
         amount: Decimal,
         entry_date: datetime.date,
         notes: str | None = None,
+        simulation_run_id: int | None = None,
+        simulation_tick_id: int | None = None,
     ) -> InventoryLedgerEntryResult:
         """Record a signed ledger entry and update the running quantity.
 
@@ -59,7 +62,12 @@ class InventoryService:
         Raises InsufficientInventoryError rather than letting quantity go
         negative. Does not commit; the caller owns the transaction
         boundary, consistent with TreasuryService and PopulationService.
+
+        simulation_run_id and simulation_tick_id (ADR-0009 Decision 3) are
+        supplied together by the tick engine, or both omitted; a ValueError
+        is raised before anything is staged if only one is given.
         """
+        validate_ledger_trace(simulation_run_id, simulation_tick_id)
         inventory = self._repository.get_or_create_inventory(city_id, resource_id)
 
         resulting_quantity = inventory.Quantity + amount
@@ -76,6 +84,8 @@ class InventoryService:
             entry_date=entry_date,
             amount=amount,
             notes=notes,
+            simulation_run_id=simulation_run_id,
+            simulation_tick_id=simulation_tick_id,
         )
 
         inventory.Quantity = resulting_quantity
