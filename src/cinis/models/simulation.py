@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UnicodeText,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -90,4 +91,43 @@ class SimulationRun(Base):
         return (
             f"SimulationRun(SimulationRunID={self.SimulationRunID!r}, "
             f"Status={self.Status!r})"
+        )
+
+
+class SimulationEvent(Base):
+    """Append-only event log for a run (the EVENTS leg of Document 5's
+    CURRENT STATE + EVENTS + SNAPSHOTS pattern). Maps to migration 0019."""
+
+    __tablename__ = "SimulationEvent"
+    __table_args__ = (
+        CheckConstraint(
+            "SimulationTickID >= 1",
+            name="CK_SimulationEvent_SimulationTickID_Positive",
+        ),
+        CheckConstraint(
+            "Payload IS NULL OR ISJSON(Payload) = 1",
+            name="CK_SimulationEvent_Payload_IsJson",
+        ),
+    )
+
+    SimulationEventID: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    SimulationRunID: Mapped[int] = mapped_column(
+        ForeignKey("SimulationRun.SimulationRunID"), nullable=False
+    )
+    # Per-run counter: only meaningful together with SimulationRunID.
+    SimulationTickID: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    SimulationDate: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    CityID: Mapped[int | None] = mapped_column(ForeignKey("City.CityID"), nullable=True)
+    EventType: Mapped[str] = mapped_column(String(50), nullable=False)
+    Description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # JSON text (sorted keys, so identical inputs give identical text).
+    Payload: Mapped[str | None] = mapped_column(UnicodeText, nullable=True)
+    CreatedDateTime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.sysutcdatetime()
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"SimulationEvent(SimulationEventID={self.SimulationEventID!r}, "
+            f"EventType={self.EventType!r})"
         )

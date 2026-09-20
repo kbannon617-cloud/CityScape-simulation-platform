@@ -48,6 +48,13 @@ def connection():
 
     cursor = conn.cursor()
     try:
+        # SimulationEvent references SimulationRun, so it must be deleted
+        # first; otherwise the FK error would roll back this whole cleanup.
+        cursor.execute(
+            "DELETE FROM dbo.SimulationEvent WHERE SimulationRunID IN "
+            "(SELECT SimulationRunID FROM dbo.SimulationRun WHERE ScenarioID IN "
+            "(SELECT ScenarioID FROM dbo.Scenario WHERE Name LIKE 'Test%'))"
+        )
         cursor.execute(
             "DELETE FROM dbo.SimulationRun WHERE ScenarioID IN "
             "(SELECT ScenarioID FROM dbo.Scenario WHERE Name LIKE 'Test%')"
