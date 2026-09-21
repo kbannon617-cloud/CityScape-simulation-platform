@@ -48,8 +48,28 @@ def connection():
 
     cursor = conn.cursor()
     try:
-        # SimulationEvent references SimulationRun, so it must be deleted
-        # first; otherwise the FK error would roll back this whole cleanup.
+        # Rows that reference a test SimulationRun (or a test City's
+        # inventory) must be deleted first; otherwise the FK error would
+        # roll back this whole cleanup.
+        test_runs = (
+            "(SELECT SimulationRunID FROM dbo.SimulationRun WHERE ScenarioID IN "
+            "(SELECT ScenarioID FROM dbo.Scenario WHERE Name LIKE 'Test%'))"
+        )
+        test_city_inventory = (
+            "(SELECT CityInventoryID FROM dbo.CityInventory WHERE CityID IN "
+            "(SELECT CityID FROM dbo.City WHERE Name LIKE 'Test%'))"
+        )
+        cursor.execute(
+            "DELETE FROM dbo.InventoryLedgerEntry WHERE SimulationRunID IN "
+            + test_runs
+            + " OR CityInventoryID IN "
+            + test_city_inventory
+        )
+        cursor.execute("DELETE FROM dbo.TreasuryLedgerEntry WHERE SimulationRunID IN " + test_runs)
+        cursor.execute(
+            "DELETE FROM dbo.CityInventory WHERE CityID IN "
+            "(SELECT CityID FROM dbo.City WHERE Name LIKE 'Test%')"
+        )
         cursor.execute(
             "DELETE FROM dbo.SimulationEvent WHERE SimulationRunID IN "
             "(SELECT SimulationRunID FROM dbo.SimulationRun WHERE ScenarioID IN "
