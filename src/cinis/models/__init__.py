@@ -9,7 +9,7 @@ from cinis.models.economy import Treasury, TreasuryCategoryType, TreasuryLedgerE
 from cinis.models.geography import City, Region, World
 from cinis.models.inventory import CityInventory, InventoryLedgerEntry, Resource
 from cinis.models.market import Market, MarketResourcePrice, MarketTransaction
-from cinis.models.needs import NeedConsumptionRate, NeedType
+from cinis.models.needs import NeedConsumptionRate, NeedType, NeedTypeResource
 from cinis.models.population import PopulationGroup, PopulationGroupType, ScenarioParameter
 from cinis.models.production import Building, BuildingType, ProductionFlow
 from cinis.models.reference import Currency, UnitOfMeasure
@@ -23,6 +23,7 @@ __all__ = [
     "World",
     "NeedType",
     "NeedConsumptionRate",
+    "NeedTypeResource",
     "PopulationGroup",
     "PopulationGroupType",
     "ScenarioParameter",
