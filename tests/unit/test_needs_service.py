@@ -82,3 +82,46 @@ def test_calculate_daily_need_totals_missing_group_in_population_defaults_to_zer
     totals = service.calculate_daily_need_totals(city_id=1)
 
     assert totals[0].total_quantity == 100.0
+
+
+def test_exact_totals_are_exact_decimals_for_rates_that_floats_cannot_represent():
+    """100 * 0.8 + 20 * 0.4 must be exactly 88, not a float near 88."""
+    from decimal import Decimal
+
+    population_repo = _FakePopulationRepository({"ADULT": 100, "CHILD": 20})
+    needs_repo = _FakeNeedsRepository(
+        [("ADULT", "HEATING", 0.8, "KG"), ("CHILD", "HEATING", 0.4, "KG")]
+    )
+    service = NeedsService(needs_repo, population_repo)
+
+    (total,) = service.calculate_daily_need_totals_exact(city_id=1)
+
+    assert total.need_type_code == "HEATING"
+    assert total.unit_code == "KG"
+    assert isinstance(total.total_quantity, Decimal)
+    assert total.total_quantity == Decimal("88.0")
+
+
+def test_exact_totals_recover_four_decimal_rates_stored_as_floats():
+    from decimal import Decimal
+
+    population_repo = _FakePopulationRepository({"ADULT": 3})
+    needs_repo = _FakeNeedsRepository([("ADULT", "FOOD", 0.1234, "KG")])
+    service = NeedsService(needs_repo, population_repo)
+
+    (total,) = service.calculate_daily_need_totals_exact(city_id=1)
+
+    assert total.total_quantity == Decimal("0.3702")
+
+
+def test_float_totals_are_unchanged_in_type_and_value():
+    population_repo = _FakePopulationRepository({"ADULT": 100, "CHILD": 20})
+    needs_repo = _FakeNeedsRepository(
+        [("ADULT", "HEATING", 0.8, "KG"), ("CHILD", "HEATING", 0.4, "KG")]
+    )
+    service = NeedsService(needs_repo, population_repo)
+
+    (total,) = service.calculate_daily_need_totals(city_id=1)
+
+    assert isinstance(total.total_quantity, float)
+    assert total.total_quantity == 88.0
