@@ -56,7 +56,16 @@ class _FakeInventoryService:
     def get_quantity(self, city_id, resource_code):
         return self.quantities.get(resource_code, Decimal("0"))
 
-    def record_ledger_entry(self, city_id, resource_id, amount, entry_date, notes=None):
+    def record_ledger_entry(
+        self,
+        city_id,
+        resource_id,
+        amount,
+        entry_date,
+        notes=None,
+        simulation_run_id=None,
+        simulation_tick_id=None,
+    ):
         # resource_id doubles as the code in these fakes for simplicity
         code = resource_id
         self.quantities[code] = self.quantities.get(code, Decimal("0")) + amount
@@ -221,3 +230,22 @@ def test_labor_spent_on_skipped_building_is_unavailable_to_later_buildings():
     saw_mill, oat_farm = results
     assert saw_mill.skipped_reason == "Insufficient input inventory"
     assert oat_farm.skipped_reason == "No labor available"
+
+
+def test_partial_trace_raises_before_any_building_is_processed():
+    import pytest
+
+    repo = _FakeProductionRepository(
+        buildings_with_types=[(_FakeBuilding(Count=1), _FakeBuildingType(Code="SAWMILL", WorkersPerBuilding=1))],
+        flows_by_code={},
+    )
+    population_repo = _FakePopulationRepository(adult_count=10, participation_rate=Decimal("100"))
+    inventory = _FakeInventoryService(starting_quantities={})
+    service = ProductionService(repo, inventory, population_repo)
+
+    with pytest.raises(ValueError, match="together"):
+        service.execute_monthly_production(
+            city_id=1, scenario_id=1, entry_date=datetime.date(1880, 2, 1), simulation_tick_id=5
+        )
+
+    assert inventory.quantities == {}

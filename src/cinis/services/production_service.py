@@ -21,7 +21,12 @@ by the data alone:
    fulfillment should behave.
 
 Standalone and callable now, ahead of any tick engine - Milestone 4's
-SimulationEngine will call this once it exists.
+SimulationEngine calls this from simulation/production_step.py.
+
+simulation_run_id and simulation_tick_id (ADR-0009 Decision 3) are
+accepted and passed through unchanged to every record_ledger_entry call,
+for callers that supply both. As with InventoryService/TreasuryService,
+giving only one raises ValueError before anything is staged.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from decimal import Decimal
 from cinis.repositories.population_repository import PopulationRepository
 from cinis.repositories.production_repository import ProductionRepository
 from cinis.rules.production_rules import calculate_staffed_building_count
+from cinis.rules.ledger_rules import validate_ledger_trace
 from cinis.services.inventory_service import InsufficientInventoryError, InventoryService
 from cinis.services.population_service import PopulationService
 
@@ -60,8 +66,14 @@ class ProductionService:
         self._population_service = PopulationService(population_repository)
 
     def execute_monthly_production(
-        self, city_id: int, scenario_id: int, entry_date: datetime.date
+        self,
+        city_id: int,
+        scenario_id: int,
+        entry_date: datetime.date,
+        simulation_run_id: int | None = None,
+        simulation_tick_id: int | None = None,
     ) -> list[ProductionResult]:
+        validate_ledger_trace(simulation_run_id, simulation_tick_id)
         available_labor = self._population_service.calculate_available_labor(
             city_id, scenario_id
         )
@@ -126,6 +138,8 @@ class ProductionService:
                         amount=-amount,
                         entry_date=entry_date,
                         notes=f"Consumed by {building_type.Code}",
+                        simulation_run_id=simulation_run_id,
+                        simulation_tick_id=simulation_tick_id,
                     )
                 except InsufficientInventoryError:
                     # Should not happen given the pre-check above, but
@@ -142,6 +156,8 @@ class ProductionService:
                     amount=amount,
                     entry_date=entry_date,
                     notes=f"Produced by {building_type.Code}",
+                    simulation_run_id=simulation_run_id,
+                    simulation_tick_id=simulation_tick_id,
                 )
                 outputs_produced[flow.resource.Code] = amount
 
