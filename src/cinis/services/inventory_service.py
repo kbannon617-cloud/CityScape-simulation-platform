@@ -45,6 +45,9 @@ class InventoryService:
     def get_quantity(self, city_id: int, resource_code: str) -> Decimal:
         return self._repository.get_quantity(city_id, resource_code)
 
+    def get_resource_id(self, resource_code: str) -> int:
+        return self._repository.get_resource_id(resource_code)
+
     def record_ledger_entry(
         self,
         city_id: int,

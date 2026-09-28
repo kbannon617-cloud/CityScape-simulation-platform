@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from cinis.models.inventory import CityInventory, InventoryLedgerEntry
+from cinis.models.inventory import CityInventory, InventoryLedgerEntry, Resource
 
 
 class CityInventoryNotFoundError(RuntimeError):
@@ -23,9 +23,22 @@ class CityInventoryNotFoundError(RuntimeError):
     rows on every read."""
 
 
+class ResourceNotFoundError(RuntimeError):
+    """Raised when a requested Resource code has not been seeded."""
+
+
 class InventoryRepository:
     def __init__(self, session: Session):
         self._session = session
+
+    def get_resource_id(self, resource_code: str) -> int:
+        """Look up a Resource's ID by its code. Needed by callers (e.g.
+        ConstructionService) that only know a resource by code and must
+        pass an ID to record_ledger_entry."""
+        resource = self._session.query(Resource).filter(Resource.Code == resource_code).one_or_none()
+        if resource is None:
+            raise ResourceNotFoundError(f"No Resource found for Code={resource_code!r}")
+        return resource.ResourceID
 
     def get_quantity(self, city_id: int, resource_code: str) -> Decimal:
         """Return the current quantity, or 0 if no row exists yet (a
@@ -71,8 +84,6 @@ class InventoryRepository:
         )
 
     def _get_inventory_row(self, city_id: int, resource_code: str) -> CityInventory | None:
-        from cinis.models.inventory import Resource
-
         return (
             self._session.query(CityInventory)
             .join(Resource, Resource.ResourceID == CityInventory.ResourceID)

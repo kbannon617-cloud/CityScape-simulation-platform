@@ -31,6 +31,9 @@ class _FakeRepository:
     def get_or_create_inventory(self, city_id: int, resource_id: int):
         return self.inventory
 
+    def get_resource_id(self, resource_code: str) -> int:
+        return {"R-001": 1, "R-004": 4}[resource_code]
+
     def add_ledger_entry(
         self,
         city_inventory_id,
@@ -127,3 +130,10 @@ def test_partial_trace_raises_before_anything_is_staged():
 
     assert repo.ledger_entries == []
     assert repo.inventory.Quantity == Decimal("100")
+
+
+def test_get_resource_id_delegates_to_the_repository():
+    repo = _FakeRepository(quantity=Decimal("100"))
+    service = InventoryService(repo)
+
+    assert service.get_resource_id("R-004") == 4
