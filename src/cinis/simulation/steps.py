@@ -1,29 +1,36 @@
 """
 The default M4 tick step list, in execution order.
 
-ORDERING DECISION (flagged for the project owner, not silently assumed):
+ORDERING DECISIONS (flagged for the project owner, not silently assumed):
 ADR-0009 Decision 1 fixes the two cadence buckets - month-boundary
-(aging, then production) and every-tick (needs and consumption) - but
-does not pin down the order between the two buckets within a single
-month-boundary tick. This module resolves that by following Document 6's
-canonical daily cycle, which lists Population/Labor, then Production,
-then Inventory Ingestion, then Needs & Consumption in that order:
+(aging, production, construction) and every-tick (needs and consumption)
+- but does not pin down the order within the month-boundary bucket. This
+module resolves that by following Document 6's canonical daily cycle
+(Population/Labor, then Production, then Inventory Ingestion, then Needs
+& Consumption), with Construction (ADR-0011, Step 4.5c) placed after
+Production:
 
     1. PopulationAging   (month-boundary only)
     2. Production        (month-boundary only)
-    3. NeedsConsumption  (every tick)
+    3. Construction       (month-boundary only)
+    4. NeedsConsumption  (every tick)
 
 The consequence: on a month-boundary tick, that month's production lands
 in inventory before that same day's needs consumption runs, so newly
 produced FOOD/HEATING resources are available to offset consumption on
-the boundary day itself. On an ordinary day, only NeedsConsumption runs.
-If this ordering is wrong, it is a one-line change here - no step's own
-code assumes its position in the list.
+the boundary day itself. Construction does not compete with FOOD/HEATING
+resources (it consumes Timber/Stone, deducted at order time, not on this
+step), so its exact position relative to Production has no material
+consequence - placed after it only because both are "build stuff" steps.
+On an ordinary day, only NeedsConsumption runs. If any of this ordering
+is wrong, it is a one-line change here - no step's own code assumes its
+position in the list.
 """
 
 from __future__ import annotations
 
 from cinis.simulation.aging_step import make_aging_step
+from cinis.simulation.construction_step import make_construction_step
 from cinis.simulation.needs_step import make_needs_consumption_step
 from cinis.simulation.production_step import make_production_step
 from cinis.simulation.tick import TickStep
@@ -36,5 +43,6 @@ def build_default_tick_steps() -> tuple[TickStep, ...]:
     return (
         make_aging_step(),
         make_production_step(),
+        make_construction_step(),
         make_needs_consumption_step(),
     )

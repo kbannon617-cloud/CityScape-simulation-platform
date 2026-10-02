@@ -1,10 +1,9 @@
 """
-Production repository. Read-only for this milestone step - it exposes
-the catalog (what building types exist, what a city currently has built,
-what each building type consumes/produces). Actual monthly production
-execution (consuming inputs, producing outputs into a real city
-inventory) is a deliberately separate next step, once CityInventory
-exists.
+Production repository. Exposes the catalog (what building types exist,
+what a city currently has built, what each building type
+consumes/produces) and get_or_create_building, the one write path this
+repository supports - used by ConstructionService.advance_projects
+(Step 4.5c) to add newly completed buildings to a city's count.
 """
 
 from __future__ import annotations
@@ -22,12 +21,39 @@ class ProductionRepository:
     def __init__(self, session: Session):
         self._session = session
 
+    def get_or_create_building(self, city_id: int, building_type_id: int) -> Building:
+        """Return the Building row for (city, building type), creating it
+        at zero count first if it doesn't exist yet. Used by
+        ConstructionService.advance_projects before incrementing Count,
+        so a city's first building of a given type always has a real row
+        to add to - mirrors InventoryRepository.get_or_create_inventory."""
+        building = (
+            self._session.query(Building)
+            .filter(Building.CityID == city_id, Building.BuildingTypeID == building_type_id)
+            .one_or_none()
+        )
+        if building is None:
+            building = Building(CityID=city_id, BuildingTypeID=building_type_id, Count=0)
+            self._session.add(building)
+            self._session.flush()
+        return building
+
     def get_building_type(self, code: str) -> BuildingType:
         building_type = (
             self._session.query(BuildingType).filter(BuildingType.Code == code).one_or_none()
         )
         if building_type is None:
             raise BuildingTypeNotFoundError(f"No BuildingType found for Code={code!r}")
+        return building_type
+
+    def get_building_type_by_id(self, building_type_id: int) -> BuildingType:
+        """Look up a BuildingType by its primary key. Used where a caller
+        already has a BuildingTypeID (e.g. from a ConstructionProject) and
+        needs the catalog row - e.g. the Construction tick step, to put a
+        human-readable Code in a ConstructionCompleted event payload."""
+        building_type = self._session.get(BuildingType, building_type_id)
+        if building_type is None:
+            raise BuildingTypeNotFoundError(f"No BuildingType found for BuildingTypeID={building_type_id!r}")
         return building_type
 
     def get_city_buildings(self, city_id: int) -> dict[str, int]:

@@ -27,7 +27,7 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from cinis.models.construction import ConstructionProject
+from cinis.models.construction import STATUS_COMPLETE, ConstructionProject
 from cinis.repositories.construction_repository import ConstructionRepository
 from cinis.repositories.inventory_repository import InventoryRepository
 from cinis.repositories.population_repository import PopulationRepository
@@ -175,3 +175,37 @@ class ConstructionService:
             total_stone_required=total_stone,
             adjusted_duration_months=adjusted_duration,
         )
+
+    def advance_projects(
+        self, city_id: int, tick_date: datetime.date
+    ) -> list[ConstructionProject]:
+        """Advance every InProgress project for city_id by one month
+        (called once per month-boundary tick - see simulation/construction_step.py).
+
+        For each project: MonthsElapsed += 1. A project whose MonthsElapsed
+        reaches its AdjustedDurationMonths (fixed at order time, never
+        recalculated - see order_project) is marked Complete,
+        CompletedSimulationDate is set to tick_date, and its ordered
+        buildings are added to the city's Building count.
+
+        No ledger writes happen here - cost and materials were already
+        deducted at order time - so there is no run/tick trace to carry
+        (unlike order_project).
+
+        Returns every project touched this call - completed or still
+        InProgress - in processing order. Callers that only care about
+        completions (e.g. the tick step, to log an event) filter on
+        Status themselves.
+        """
+        touched: list[ConstructionProject] = []
+        for project in self._repository.get_active_projects(city_id):
+            project.MonthsElapsed += 1
+            if project.MonthsElapsed >= project.AdjustedDurationMonths:
+                project.Status = STATUS_COMPLETE
+                project.CompletedSimulationDate = tick_date
+                building = self._production_repository.get_or_create_building(
+                    city_id, project.BuildingTypeID
+                )
+                building.Count += project.BuildingsOrdered
+            touched.append(project)
+        return touched

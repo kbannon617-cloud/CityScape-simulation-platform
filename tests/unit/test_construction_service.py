@@ -275,3 +275,151 @@ def test_trace_ids_are_forwarded_to_every_ledger_write_and_the_project():
     assert treasury.entries[0]["simulation_run_id"] == 7
     assert treasury.entries[0]["simulation_tick_id"] == 3
     assert all(e["simulation_run_id"] == 7 and e["simulation_tick_id"] == 3 for e in inventory.entries)
+
+
+# --- advance_projects ----------------------------------------------------
+
+
+class _FakeProductionRepositoryWithBuildings(_FakeProductionRepository):
+    """Extends the ordering fake with get_or_create_building, needed only
+    by advance_projects tests below."""
+
+    def __init__(self, building_type=None, city_buildings=None, existing_buildings=None):
+        super().__init__(building_type, city_buildings)
+        self._buildings = existing_buildings or {}
+
+    def get_or_create_building(self, city_id, building_type_id):
+        key = (city_id, building_type_id)
+        if key not in self._buildings:
+            from cinis.models.production import Building
+
+            self._buildings[key] = Building(CityID=city_id, BuildingTypeID=building_type_id, Count=0)
+        return self._buildings[key]
+
+
+class _FakeConstructionRepositoryWithProjects(_FakeConstructionRepository):
+    """Extends the ordering fake with get_active_projects, needed only by
+    advance_projects tests below."""
+
+    def __init__(self, projects):
+        super().__init__()
+        self._projects = projects
+
+    def get_active_projects(self, city_id):
+        return [p for p in self._projects if p.CityID == city_id]
+
+
+def _in_progress_project(months_elapsed, adjusted_duration, city_id=1, building_type_id=2, ordered=1):
+    from cinis.models.construction import STATUS_IN_PROGRESS, ConstructionProject
+
+    return ConstructionProject(
+        ConstructionProjectID=1,
+        CityID=city_id,
+        BuildingTypeID=building_type_id,
+        BuildingsOrdered=ordered,
+        MonthsElapsed=months_elapsed,
+        AdjustedDurationMonths=adjusted_duration,
+        Status=STATUS_IN_PROGRESS,
+    )
+
+
+def test_advance_projects_increments_months_elapsed_without_completing():
+    project = _in_progress_project(months_elapsed=2, adjusted_duration=8)
+    construction_repo = _FakeConstructionRepositoryWithProjects([project])
+    production_repo = _FakeProductionRepositoryWithBuildings()
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    result = service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert project.MonthsElapsed == 3
+    assert project.Status == "InProgress"
+    assert project.CompletedSimulationDate is None
+    assert result == [project]
+    assert production_repo._buildings == {}
+
+
+def test_advance_projects_completes_a_project_that_reaches_its_duration():
+    project = _in_progress_project(months_elapsed=7, adjusted_duration=8, building_type_id=9, ordered=2)
+    construction_repo = _FakeConstructionRepositoryWithProjects([project])
+    production_repo = _FakeProductionRepositoryWithBuildings()
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert project.MonthsElapsed == 8
+    assert project.Status == "Complete"
+    assert project.CompletedSimulationDate == ORDER_DATE
+    building = production_repo._buildings[(1, 9)]
+    assert building.Count == 2
+
+
+def test_advance_projects_adds_to_an_existing_buildings_count():
+    from cinis.models.production import Building
+
+    project = _in_progress_project(months_elapsed=7, adjusted_duration=8, building_type_id=9, ordered=3)
+    construction_repo = _FakeConstructionRepositoryWithProjects([project])
+    existing = Building(CityID=1, BuildingTypeID=9, Count=5)
+    production_repo = _FakeProductionRepositoryWithBuildings(existing_buildings={(1, 9): existing})
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert existing.Count == 8  # 5 already there + 3 ordered
+
+
+def test_advance_projects_handles_multiple_concurrent_projects_independently():
+    ready = _in_progress_project(months_elapsed=7, adjusted_duration=8, building_type_id=2)
+    ready.ConstructionProjectID = 1
+    not_ready = _in_progress_project(months_elapsed=1, adjusted_duration=8, building_type_id=3)
+    not_ready.ConstructionProjectID = 2
+    construction_repo = _FakeConstructionRepositoryWithProjects([ready, not_ready])
+    production_repo = _FakeProductionRepositoryWithBuildings()
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert ready.Status == "Complete"
+    assert not_ready.Status == "InProgress"
+    assert not_ready.MonthsElapsed == 2
+
+
+def test_advance_projects_with_no_active_projects_does_nothing():
+    construction_repo = _FakeConstructionRepositoryWithProjects([])
+    production_repo = _FakeProductionRepositoryWithBuildings()
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    result = service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert result == []
+    assert production_repo._buildings == {}
+
+
+def test_advance_projects_only_touches_the_given_citys_projects():
+    this_city = _in_progress_project(months_elapsed=7, adjusted_duration=8, city_id=1)
+    other_city = _in_progress_project(months_elapsed=7, adjusted_duration=8, city_id=2)
+    construction_repo = _FakeConstructionRepositoryWithProjects([this_city, other_city])
+    production_repo = _FakeProductionRepositoryWithBuildings()
+    service = ConstructionService(
+        construction_repo, _FakeTreasuryService(), _FakeInventoryService(),
+        production_repo, _FakePopulationRepository(DEFAULT_PARAMS),
+    )
+
+    result = service.advance_projects(city_id=1, tick_date=ORDER_DATE)
+
+    assert result == [this_city]
+    assert other_city.MonthsElapsed == 7  # untouched
