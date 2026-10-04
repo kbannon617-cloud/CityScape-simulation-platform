@@ -1,7 +1,8 @@
 """
-Vehicle repository. Read-only for this milestone step, matching
-ProductionRepository's initial scope - catalog and current city vehicle
-counts, not yet a vehicle-ordering execution service.
+Vehicle repository. Catalog, current city vehicle counts, and
+get_or_create_city_vehicle (Step 4.6b) - the one write path this
+repository supports, used by VehicleOrderingService to add newly
+ordered vehicles to a city's count.
 """
 
 from __future__ import annotations
@@ -26,6 +27,22 @@ class VehicleRepository:
         if vehicle_type is None:
             raise VehicleTypeNotFoundError(f"No VehicleType found for Code={code!r}")
         return vehicle_type
+
+    def get_or_create_city_vehicle(self, city_id: int, vehicle_type_id: int) -> CityVehicle:
+        """Return the CityVehicle row for (city, vehicle type), creating it
+        at zero count first if it doesn't exist yet. Mirrors
+        ProductionRepository.get_or_create_building /
+        InventoryRepository.get_or_create_inventory."""
+        vehicle = (
+            self._session.query(CityVehicle)
+            .filter(CityVehicle.CityID == city_id, CityVehicle.VehicleTypeID == vehicle_type_id)
+            .one_or_none()
+        )
+        if vehicle is None:
+            vehicle = CityVehicle(CityID=city_id, VehicleTypeID=vehicle_type_id, Count=0)
+            self._session.add(vehicle)
+            self._session.flush()
+        return vehicle
 
     def get_city_vehicles(self, city_id: int) -> dict[str, int]:
         """Return {vehicle_type_code: count} for every vehicle a city has."""
