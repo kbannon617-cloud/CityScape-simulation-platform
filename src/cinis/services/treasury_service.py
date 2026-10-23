@@ -20,6 +20,14 @@ from cinis.repositories.treasury_repository import TreasuryRepository
 from cinis.rules.ledger_rules import validate_ledger_trace
 
 
+class InsufficientTreasuryBalanceError(RuntimeError):
+    """Raised when applying an entry would take Treasury.Balance negative.
+    Mirrors InventoryService.InsufficientInventoryError - Step 4.7 closes
+    the one entity that lacked this protection (Inventory/Building/
+    CityVehicle all already enforce non-negative at the database level;
+    Treasury never has - flagged in Steps 4.5/4.6, fixed here)."""
+
+
 @dataclass(frozen=True)
 class LedgerEntryResult:
     new_balance: Decimal
@@ -46,9 +54,11 @@ class TreasuryService:
         """Record a signed ledger entry and update the running balance.
 
         amount is signed: positive increases the balance (income),
-        negative decreases it (expense). Does not commit; the caller
-        owns the transaction boundary, consistent with the pattern
-        already used in PopulationService.
+        negative decreases it (expense). Raises
+        InsufficientTreasuryBalanceError rather than letting the balance
+        go negative (Step 4.7 - mirrors InventoryService). Does not
+        commit; the caller owns the transaction boundary, consistent
+        with the pattern already used in PopulationService.
 
         simulation_run_id and simulation_tick_id (ADR-0009 Decision 3) are
         supplied together by the tick engine, or both omitted; a ValueError
@@ -57,6 +67,13 @@ class TreasuryService:
         validate_ledger_trace(simulation_run_id, simulation_tick_id)
         treasury = self._repository.get_treasury(city_id)
         category_type_id = self._repository.get_category_type_id(category_code)
+
+        resulting_balance = treasury.Balance + amount
+        if resulting_balance < 0:
+            raise InsufficientTreasuryBalanceError(
+                f"Cannot apply amount={amount} to CityID={city_id}: current balance is "
+                f"{treasury.Balance}, resulting balance {resulting_balance} would be negative."
+            )
 
         self._repository.add_ledger_entry(
             treasury_id=treasury.TreasuryID,

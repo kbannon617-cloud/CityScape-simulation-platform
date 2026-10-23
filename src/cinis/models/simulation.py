@@ -131,3 +131,38 @@ class SimulationEvent(Base):
             f"SimulationEvent(SimulationEventID={self.SimulationEventID!r}, "
             f"EventType={self.EventType!r})"
         )
+
+
+class CitySnapshot(Base):
+    """Point-in-time city state rollup (the SNAPSHOTS leg of Document 5's
+    CURRENT STATE + EVENTS + SNAPSHOTS pattern). Maps to migration 0026."""
+
+    __tablename__ = "CitySnapshot"
+    __table_args__ = (
+        CheckConstraint(
+            "SimulationTickID >= 1",
+            name="CK_CitySnapshot_SimulationTickID_Positive",
+        ),
+        CheckConstraint(
+            "ISJSON(Payload) = 1",
+            name="CK_CitySnapshot_Payload_IsJson",
+        ),
+    )
+
+    CitySnapshotID: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    SimulationRunID: Mapped[int] = mapped_column(
+        ForeignKey("SimulationRun.SimulationRunID"), nullable=False
+    )
+    SimulationTickID: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    SimulationDate: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    CityID: Mapped[int] = mapped_column(ForeignKey("City.CityID"), nullable=False)
+    Payload: Mapped[str] = mapped_column(UnicodeText, nullable=False)
+    CreatedDateTime: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.sysutcdatetime()
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"CitySnapshot(CitySnapshotID={self.CitySnapshotID!r}, "
+            f"CityID={self.CityID!r}, SimulationDate={self.SimulationDate!r})"
+        )

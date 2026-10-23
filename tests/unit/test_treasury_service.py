@@ -161,3 +161,25 @@ def test_partial_trace_raises_before_anything_is_staged():
 
     assert repo.added_entries == []
     assert repo.treasury.Balance == Decimal("10000.00")
+
+
+def test_an_entry_that_would_take_the_balance_negative_is_rejected():
+    from cinis.services.treasury_service import InsufficientTreasuryBalanceError
+
+    repo = _FakeRepository(starting_balance=Decimal("50.00"))
+    service = TreasuryService(repo)
+
+    with pytest.raises(InsufficientTreasuryBalanceError, match="CityID=1"):
+        service.record_ledger_entry(1, "RESIDENT_INCOME", Decimal("-100.00"), date(2026, 3, 1))
+
+    assert repo.treasury.Balance == Decimal("50.00")
+    assert repo.added_entries == []
+
+
+def test_an_entry_that_exactly_zeroes_the_balance_is_allowed():
+    repo = _FakeRepository(starting_balance=Decimal("100.00"))
+    service = TreasuryService(repo)
+
+    result = service.record_ledger_entry(1, "RESIDENT_INCOME", Decimal("-100.00"), date(2026, 3, 1))
+
+    assert result.new_balance == Decimal("0.00")

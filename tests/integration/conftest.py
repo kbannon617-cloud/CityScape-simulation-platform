@@ -59,6 +59,21 @@ def connection():
             "(SELECT CityInventoryID FROM dbo.CityInventory WHERE CityID IN "
             "(SELECT CityID FROM dbo.City WHERE Name LIKE 'Test%'))"
         )
+        # Step 4.7's multi-day test is the first to leave real, committed
+        # Population/Building/CityVehicle/ConstructionProject/CitySnapshot/
+        # ScenarioParameter rows against a Test city/scenario (every
+        # earlier test used SAVEPOINT rollback for these tables). Deleted
+        # first, in FK-safe order, so the later City/Scenario deletes
+        # below don't fail.
+        test_cities = "(SELECT CityID FROM dbo.City WHERE Name LIKE 'Test%')"
+        test_scenarios_now = "(SELECT ScenarioID FROM dbo.Scenario WHERE Name LIKE 'Test%')"
+        cursor.execute("DELETE FROM dbo.CitySnapshot WHERE CityID IN " + test_cities)
+        cursor.execute("DELETE FROM dbo.ConstructionProject WHERE CityID IN " + test_cities)
+        cursor.execute("DELETE FROM dbo.Building WHERE CityID IN " + test_cities)
+        cursor.execute("DELETE FROM dbo.CityVehicle WHERE CityID IN " + test_cities)
+        cursor.execute("DELETE FROM dbo.PopulationGroup WHERE CityID IN " + test_cities)
+        cursor.execute("DELETE FROM dbo.ScenarioParameter WHERE ScenarioID IN " + test_scenarios_now)
+
         cursor.execute(
             "DELETE FROM dbo.InventoryLedgerEntry WHERE SimulationRunID IN "
             + test_runs
@@ -66,6 +81,10 @@ def connection():
             + test_city_inventory
         )
         cursor.execute("DELETE FROM dbo.TreasuryLedgerEntry WHERE SimulationRunID IN " + test_runs)
+        # Treasury (Step 4.7's multi-day test) must come after
+        # TreasuryLedgerEntry above, not in the earlier block - it's
+        # referenced by that table, not referencing it.
+        cursor.execute("DELETE FROM dbo.Treasury WHERE CityID IN " + test_cities)
         cursor.execute(
             "DELETE FROM dbo.CityInventory WHERE CityID IN "
             "(SELECT CityID FROM dbo.City WHERE Name LIKE 'Test%')"

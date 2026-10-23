@@ -14,7 +14,7 @@ from cinis.models.needs import NeedConsumptionRate, NeedType, NeedTypeResource
 from cinis.models.population import PopulationGroup, PopulationGroupType, ScenarioParameter
 from cinis.models.production import Building, BuildingType, ProductionFlow
 from cinis.models.reference import Currency, UnitOfMeasure
-from cinis.models.simulation import Scenario, Simulation, SimulationEvent, SimulationRun
+from cinis.models.simulation import CitySnapshot, Scenario, Simulation, SimulationEvent, SimulationRun
 from cinis.models.vehicle import BuildingVehicleRequirement, CityVehicle, TransportMode, VehicleType
 
 __all__ = [
@@ -35,6 +35,7 @@ __all__ = [
     "Simulation",
     "SimulationRun",
     "SimulationEvent",
+    "CitySnapshot",
     "Treasury",
     "TreasuryCategoryType",
     "TreasuryLedgerEntry",

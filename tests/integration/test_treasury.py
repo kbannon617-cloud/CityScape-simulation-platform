@@ -145,3 +145,26 @@ def test_unknown_category_code_raises_clear_error(sqlalchemy_session, cityscape_
             amount=Decimal("100.00"),
             entry_date=date(2026, 2, 1),
         )
+
+
+def test_an_entry_that_would_take_the_real_balance_negative_is_rejected(
+    sqlalchemy_session, cityscape_id
+):
+    from cinis.services.treasury_service import InsufficientTreasuryBalanceError
+
+    repo = TreasuryRepository(sqlalchemy_session)
+    service = TreasuryService(repo)
+
+    savepoint = sqlalchemy_session.begin_nested()
+    try:
+        starting_balance = service.get_balance(cityscape_id)
+        with pytest.raises(InsufficientTreasuryBalanceError, match=str(cityscape_id)):
+            service.record_ledger_entry(
+                city_id=cityscape_id,
+                category_code="BUILDING_MAINTENANCE",
+                amount=-(starting_balance + Decimal("1.00")),
+                entry_date=date(2026, 2, 1),
+            )
+        assert service.get_balance(cityscape_id) == starting_balance
+    finally:
+        savepoint.rollback()
