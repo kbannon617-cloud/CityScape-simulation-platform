@@ -29,7 +29,11 @@ from __future__ import annotations
 
 import datetime
 import uuid
+import warnings
 from decimal import Decimal
+
+import pyodbc
+import pytest
 
 
 def _insert_returning_id(cursor, sql, *params) -> int:
@@ -175,3 +179,60 @@ def test_cleanup_removes_market_family_and_untraced_treasury_rows(connection, cl
         assert after == {name: 0 for name in probes}, f"cleanup left rows behind: {after}"
     finally:
         connection.rollback()
+
+
+# --- Failure visibility (M5 Step 5.2) -------------------------------------
+# These two need no database: a fake connection stands in for SQL Server, so
+# they run everywhere and prove the session-end cleanup can no longer fail
+# silently.
+
+
+class _FakeCursor:
+    def __init__(self, error: Exception | None = None):
+        self._error = error
+        self.executed: list[str] = []
+
+    def execute(self, sql, *params):
+        if self._error is not None:
+            raise self._error
+        self.executed.append(sql)
+
+
+class _FakeConnection:
+    def __init__(self, cursor: _FakeCursor):
+        self._cursor = cursor
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+def test_a_failed_session_cleanup_rolls_back_and_warns_without_raising(run_session_cleanup):
+    conn = _FakeConnection(_FakeCursor(pyodbc.Error("23000", "FK_Scenario_Simulation conflict")))
+
+    with pytest.warns(RuntimeWarning, match="cleanup FAILED") as caught:
+        run_session_cleanup(conn)  # must not raise: a cleanup problem cannot fail the session
+
+    assert conn.rollbacks == 1
+    assert conn.commits == 0
+    assert "FK_Scenario_Simulation conflict" in str(caught[0].message)
+
+
+def test_a_successful_session_cleanup_commits_and_stays_silent(run_session_cleanup):
+    cursor = _FakeCursor()
+    conn = _FakeConnection(cursor)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning becomes a failure
+        run_session_cleanup(conn)
+
+    assert conn.commits == 1
+    assert conn.rollbacks == 0
+    assert cursor.executed, "cleanup executed no statements"

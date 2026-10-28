@@ -7,6 +7,7 @@ leave permanent pollution in a database also used for real development.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pyodbc
@@ -126,6 +127,37 @@ def cleanup_test_rows():
     test_cleanup_of_test_rows.py). Takes a pyodbc cursor; does not commit."""
     return _cleanup_test_rows
 
+
+def _run_session_cleanup(conn) -> None:
+    """Run the Test-row cleanup as one transaction at session end.
+
+    A failure rolls back and WARNS; it never raises, so a cleanup problem
+    cannot fail an otherwise-green session. Before M5 Step 5.2 the error
+    was swallowed silently, which hid a real failure for most of the
+    project's life (see the OWNERSHIP RULE in _cleanup_test_rows): every
+    session left its Test rows behind and nothing said so.
+    """
+    cursor = conn.cursor()
+    try:
+        _cleanup_test_rows(cursor)
+        conn.commit()
+    except pyodbc.Error as exc:
+        conn.rollback()
+        warnings.warn(
+            "Integration-test row cleanup FAILED and was rolled back; Test rows "
+            f"from this session remain in the database. Cause: {exc} "
+            "Run tests/integration/test_cleanup_of_test_rows.py to reproduce.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+
+@pytest.fixture
+def run_session_cleanup():
+    """The session-end cleanup runner, exposed so a test can prove failures
+    are visible (see test_cleanup_of_test_rows.py). Takes a connection."""
+    return _run_session_cleanup
+
 @pytest.fixture(scope="session")
 def connection():
     try:
@@ -138,16 +170,7 @@ def connection():
 
     yield conn
 
-    cursor = conn.cursor()
     try:
-        _cleanup_test_rows(cursor)
-        conn.commit()
-    except pyodbc.Error:
-        # Known technical debt (M5 decision): this swallows the error, so a
-        # cleanup failure leaves every Test row behind with no message. The
-        # static coverage test (tests/unit/test_cleanup_coverage.py) and the
-        # live test (tests/integration/test_cleanup_of_test_rows.py) exist
-        # so a broken cleanup is caught before it can fail silently here.
-        conn.rollback()
+        _run_session_cleanup(conn)
     finally:
         conn.close()
