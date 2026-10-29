@@ -31,6 +31,9 @@ from isolated_city import (
     SLICE_START_DATE,
     build_isolated_city,
 )
+from isolated_city import query_rows as _rows
+from isolated_city import query_scalar as _scalar
+from isolated_city import real_city_fingerprint as _real_city_fingerprint
 
 
 @pytest.fixture(scope="module")
@@ -39,87 +42,6 @@ def session_factory(connection):
     engine = create_engine(settings.to_sqlalchemy_url())
     yield sessionmaker(bind=engine)
     engine.dispose()
-
-
-def _rows(session_factory, sql, *params):
-    """Run a read-only query; return rows as plain tuples (pyodbc.Row does
-    not reliably support == against a tuple, so never compare Rows)."""
-    session = session_factory()
-    try:
-        cursor = session.connection().connection.cursor()
-        cursor.execute(sql, *params)
-        return [tuple(row) for row in cursor.fetchall()]
-    finally:
-        session.rollback()
-        session.close()
-
-
-def _scalar(session_factory, sql, *params):
-    return _rows(session_factory, sql, *params)[0][0]
-
-
-def _real_city_fingerprint(session_factory) -> dict:
-    """Everything about the real primary-active city that a slice test
-    could plausibly disturb. Read-only."""
-    primary = _rows(session_factory, "SELECT CityID, Name FROM dbo.City WHERE IsPrimaryActive = 1")
-    assert len(primary) == 1, f"expected exactly one primary-active city, found {primary}"
-    city_id = primary[0][0]
-    return {
-        "city": primary[0],
-        "population": _rows(
-            session_factory,
-            "SELECT PopulationGroupTypeID, Count FROM dbo.PopulationGroup WHERE CityID = ? "
-            "ORDER BY PopulationGroupTypeID",
-            city_id,
-        ),
-        "buildings": _rows(
-            session_factory,
-            "SELECT BuildingTypeID, Count FROM dbo.Building WHERE CityID = ? ORDER BY BuildingTypeID",
-            city_id,
-        ),
-        "inventory": _rows(
-            session_factory,
-            "SELECT ResourceID, Quantity FROM dbo.CityInventory WHERE CityID = ? ORDER BY ResourceID",
-            city_id,
-        ),
-        "inventory_ledger_rows": _scalar(
-            session_factory,
-            "SELECT COUNT(*) FROM dbo.InventoryLedgerEntry le JOIN dbo.CityInventory ci "
-            "ON ci.CityInventoryID = le.CityInventoryID WHERE ci.CityID = ?",
-            city_id,
-        ),
-        "treasury": _rows(
-            session_factory, "SELECT TreasuryID, Balance FROM dbo.Treasury WHERE CityID = ?", city_id
-        ),
-        "treasury_ledger_rows": _scalar(
-            session_factory,
-            "SELECT COUNT(*) FROM dbo.TreasuryLedgerEntry le JOIN dbo.Treasury t "
-            "ON t.TreasuryID = le.TreasuryID WHERE t.CityID = ?",
-            city_id,
-        ),
-        "market_transactions": _scalar(
-            session_factory,
-            "SELECT COUNT(*) FROM dbo.MarketTransaction mt JOIN dbo.Market m "
-            "ON m.MarketID = mt.MarketID WHERE m.CityID = ?",
-            city_id,
-        ),
-        "construction_projects": _scalar(
-            session_factory, "SELECT COUNT(*) FROM dbo.ConstructionProject WHERE CityID = ?", city_id
-        ),
-        "snapshots": _scalar(
-            session_factory, "SELECT COUNT(*) FROM dbo.CitySnapshot WHERE CityID = ?", city_id
-        ),
-        "baseline_runs": _scalar(
-            session_factory,
-            "SELECT COUNT(*) FROM dbo.SimulationRun sr JOIN dbo.Scenario sc "
-            "ON sc.ScenarioID = sr.ScenarioID WHERE sc.Name = 'Cinis Baseline'",
-        ),
-        "baseline_prices": _rows(
-            session_factory,
-            "SELECT p.ResourceID, p.UnitPrice FROM dbo.MarketResourcePrice p JOIN dbo.Scenario sc "
-            "ON sc.ScenarioID = p.ScenarioID WHERE sc.Name = 'Cinis Baseline' ORDER BY p.ResourceID",
-        ),
-    }
 
 
 @dataclasses.dataclass(frozen=True)

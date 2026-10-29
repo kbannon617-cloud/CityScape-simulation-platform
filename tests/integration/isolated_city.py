@@ -239,3 +239,87 @@ def build_isolated_city(
         raise
     finally:
         session.close()
+
+
+# --- Read helpers shared by the M5 tests -----------------------------------
+
+
+def query_rows(session_factory, sql, *params):
+    """Run a read-only query; return rows as plain tuples (pyodbc.Row does
+    not reliably support == against a tuple, so never compare Rows)."""
+    session = session_factory()
+    try:
+        cursor = session.connection().connection.cursor()
+        cursor.execute(sql, *params)
+        return [tuple(row) for row in cursor.fetchall()]
+    finally:
+        session.rollback()
+        session.close()
+
+
+def query_scalar(session_factory, sql, *params):
+    return query_rows(session_factory, sql, *params)[0][0]
+
+
+def real_city_fingerprint(session_factory) -> dict:
+    """Everything about the real primary-active city that a slice test
+    could plausibly disturb. Read-only."""
+    primary = query_rows(session_factory, "SELECT CityID, Name FROM dbo.City WHERE IsPrimaryActive = 1")
+    assert len(primary) == 1, f"expected exactly one primary-active city, found {primary}"
+    city_id = primary[0][0]
+    return {
+        "city": primary[0],
+        "population": query_rows(
+            session_factory,
+            "SELECT PopulationGroupTypeID, Count FROM dbo.PopulationGroup WHERE CityID = ? "
+            "ORDER BY PopulationGroupTypeID",
+            city_id,
+        ),
+        "buildings": query_rows(
+            session_factory,
+            "SELECT BuildingTypeID, Count FROM dbo.Building WHERE CityID = ? ORDER BY BuildingTypeID",
+            city_id,
+        ),
+        "inventory": query_rows(
+            session_factory,
+            "SELECT ResourceID, Quantity FROM dbo.CityInventory WHERE CityID = ? ORDER BY ResourceID",
+            city_id,
+        ),
+        "inventory_ledger_rows": query_scalar(
+            session_factory,
+            "SELECT COUNT(*) FROM dbo.InventoryLedgerEntry le JOIN dbo.CityInventory ci "
+            "ON ci.CityInventoryID = le.CityInventoryID WHERE ci.CityID = ?",
+            city_id,
+        ),
+        "treasury": query_rows(
+            session_factory, "SELECT TreasuryID, Balance FROM dbo.Treasury WHERE CityID = ?", city_id
+        ),
+        "treasury_ledger_rows": query_scalar(
+            session_factory,
+            "SELECT COUNT(*) FROM dbo.TreasuryLedgerEntry le JOIN dbo.Treasury t "
+            "ON t.TreasuryID = le.TreasuryID WHERE t.CityID = ?",
+            city_id,
+        ),
+        "market_transactions": query_scalar(
+            session_factory,
+            "SELECT COUNT(*) FROM dbo.MarketTransaction mt JOIN dbo.Market m "
+            "ON m.MarketID = mt.MarketID WHERE m.CityID = ?",
+            city_id,
+        ),
+        "construction_projects": query_scalar(
+            session_factory, "SELECT COUNT(*) FROM dbo.ConstructionProject WHERE CityID = ?", city_id
+        ),
+        "snapshots": query_scalar(
+            session_factory, "SELECT COUNT(*) FROM dbo.CitySnapshot WHERE CityID = ?", city_id
+        ),
+        "baseline_runs": query_scalar(
+            session_factory,
+            "SELECT COUNT(*) FROM dbo.SimulationRun sr JOIN dbo.Scenario sc "
+            "ON sc.ScenarioID = sr.ScenarioID WHERE sc.Name = 'Cinis Baseline'",
+        ),
+        "baseline_prices": query_rows(
+            session_factory,
+            "SELECT p.ResourceID, p.UnitPrice FROM dbo.MarketResourcePrice p JOIN dbo.Scenario sc "
+            "ON sc.ScenarioID = p.ScenarioID WHERE sc.Name = 'Cinis Baseline' ORDER BY p.ResourceID",
+        ),
+    }
