@@ -24,12 +24,17 @@ transactions, the events, the snapshot - plus ledger invariants (inventory
 and treasury equal the sum of their ledgers, every entry the tick wrote is
 stamped with the tick's run/tick).
 
+The second live test runs the same day with one trade that fails mid-tick and
+proves the whole tick rolls back across every domain (Document 7: no partial
+persistence after a failed tick), using real steps instead of fakes.
+
 Run with `pytest -s tests/integration/test_vertical_slice.py` to print a
 before/after report of the day.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 from decimal import Decimal
@@ -41,7 +46,10 @@ from sqlalchemy.orm import sessionmaker
 from cinis.config.settings import load_database_settings
 from cinis.events.event_types import CONSTRUCTION_COMPLETED, NEEDS_SHORTFALL
 from cinis.models.construction import STATUS_COMPLETE
-from cinis.simulation.engine import SimulationEngine
+from cinis.repositories.inventory_repository import InventoryRepository
+from cinis.repositories.population_repository import PopulationRepository
+from cinis.services.inventory_service import InsufficientInventoryError, InventoryService
+from cinis.simulation.engine import SimulationEngine, SimulationRunNotActiveError
 from cinis.simulation.steps import build_default_tick_steps
 from isolated_city import (
     SLICE_START_DATE,
@@ -51,7 +59,7 @@ from isolated_city import (
     real_city_fingerprint,
 )
 from scripted_steps import ORDERS_STEP_NAME, TRADES_STEP_NAME, build_slice_steps
-from slice_oracle import BuildingSpec, Catalog, DayStart, Order, Trade, expected_day
+from slice_oracle import BuildingSpec, Catalog, DayStart, ModelError, Order, Trade, expected_day
 
 TICK_DATE = SLICE_START_DATE + datetime.timedelta(days=1)   # 1880-02-01
 SNAPSHOT_RESOURCES = ("R-001", "R-002", "R-003", "R-004")    # what the Snapshot step records
@@ -416,4 +424,113 @@ def test_one_boundary_day_runs_every_domain_end_to_end(session_factory):
     )
 
     # --- The real CityScape was never touched --------------------------------------
+    assert real_city_fingerprint(session_factory) == real_before
+
+
+def _city_state(sf, city) -> dict:
+    """Everything the slice's day could change for the Test city, across every
+    domain, in one comparable dict. Row counts catch rows a rollback should
+    have removed (a ledger entry, an event, a project, a snapshot, a trade,
+    even an inventory row created for a resource the city never held)."""
+    cid, rid = city.city_id, city.run_id
+    return {
+        "population": _read_population(sf, cid),
+        "buildings": _read_buildings(sf, cid),
+        "stock": _read_stock(sf, cid),
+        "treasury": _read_treasury(sf, city.treasury_id),
+        "inventory_rows": query_scalar(sf, "SELECT COUNT(*) FROM dbo.CityInventory WHERE CityID = ?", cid),
+        "inventory_ledger_rows": query_scalar(
+            sf,
+            "SELECT COUNT(*) FROM dbo.InventoryLedgerEntry le JOIN dbo.CityInventory ci "
+            "ON ci.CityInventoryID = le.CityInventoryID WHERE ci.CityID = ?",
+            cid,
+        ),
+        "treasury_ledger_rows": query_scalar(
+            sf, "SELECT COUNT(*) FROM dbo.TreasuryLedgerEntry WHERE TreasuryID = ?", city.treasury_id
+        ),
+        "market_transactions": query_scalar(
+            sf, "SELECT COUNT(*) FROM dbo.MarketTransaction WHERE MarketID = ?", city.market_id
+        ),
+        "construction_projects": query_scalar(
+            sf, "SELECT COUNT(*) FROM dbo.ConstructionProject WHERE CityID = ?", cid
+        ),
+        "events": query_scalar(sf, "SELECT COUNT(*) FROM dbo.SimulationEvent WHERE SimulationRunID = ?", rid),
+        "snapshots": query_scalar(sf, "SELECT COUNT(*) FROM dbo.CitySnapshot WHERE SimulationRunID = ?", rid),
+    }
+
+
+def test_a_trade_failing_mid_tick_rolls_back_every_domain(session_factory):
+    real_before = real_city_fingerprint(session_factory)
+    city = build_isolated_city(session_factory, label="VRollback")
+
+    catalog = _read_catalog(session_factory, city.scenario_id)
+    start = _read_start(session_factory, city)
+    orders = (Order("B-007", 1),)
+    lumber_made = expected_day(catalog, start, orders).stock.get("R-005", Decimal("0"))
+    happy_adults = expected_day(catalog, start, orders).adults
+    assert lumber_made > 0
+
+    # The script: a perfectly good buy FIRST, then a sale of one more Lumber than
+    # the Saw Mill made. The buy is already staged inside the tick's open
+    # transaction when the sale fails - it must be rolled back with everything else.
+    bad_trades = (
+        Trade("buy", "R-001", Decimal("100")),
+        Trade("sell", "R-005", lumber_made + 1),
+    )
+    with pytest.raises(ModelError, match="stock would go negative"):
+        expected_day(catalog, start, orders, bad_trades)   # the model rejects this day too
+
+    # Instrument every step to record that it started and, just before the failing
+    # trade step runs, what is staged in the still-open transaction. That proves
+    # real work in several domains existed to be rolled back (not a vacuous pass).
+    started: list[str] = []
+    staged: dict = {}
+
+    def instrument(step):
+        original = step.execute
+
+        def execute(context):
+            started.append(step.name)
+            if step.name == TRADES_STEP_NAME:
+                staged["adults"] = (
+                    PopulationRepository(context.session).get_group(city.city_id, "ADULT").Count
+                )
+                staged["lumber"] = InventoryService(InventoryRepository(context.session)).get_quantity(
+                    city.city_id, "R-005"
+                )
+            original(context)
+
+        return dataclasses.replace(step, execute=execute)
+
+    steps = tuple(instrument(step) for step in build_slice_steps(city.city_id, orders, bad_trades))
+    engine = SimulationEngine(session_factory, steps)
+    before = _city_state(session_factory, city)
+
+    with pytest.raises(InsufficientInventoryError):
+        engine.run_tick(city.run_id)
+
+    # Everything up to and including the failing step started; the snapshot never did.
+    all_names = [step.name for step in steps]
+    assert started == all_names[:-1] and all_names[-1] == "Snapshot"
+    # Mid-tick, the open transaction really held changes from earlier domains.
+    assert staged["adults"] == happy_adults > start.adults, "aging was not staged before the failure"
+    assert staged["lumber"] == lumber_made, "production was not staged before the failure"
+
+    # Afterwards NOTHING from the tick survives, in any domain.
+    assert _city_state(session_factory, city) == before
+
+    # The run is marked Failed in its own transaction, and still sits at tick 0 / start date.
+    assert query_rows(
+        session_factory,
+        "SELECT CurrentSimulationDate, CurrentSimulationTickID, Status FROM dbo.SimulationRun "
+        "WHERE SimulationRunID = ?",
+        city.run_id,
+    ) == [(city.start_date, 0, "Failed")]
+
+    # A Failed run refuses further ticks, and refusing changes nothing.
+    with pytest.raises(SimulationRunNotActiveError):
+        engine.run_tick(city.run_id)
+    assert _city_state(session_factory, city) == before
+
+    # The real CityScape was never touched by the failed tick either.
     assert real_city_fingerprint(session_factory) == real_before
